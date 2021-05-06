@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+
+{% block head %}
+<h1>Main Page</h1>
+{% endblock %}
+
+{% block body %}
+{% if error %}
+  <p class=error><strong>Error:</strong> {{ error }}
+{% endif %}
+<nav class="navbar navbar-expand-md navbar-light bg-light">
+  <a class="navbar-brand">{{user_name}}</a>
+  <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav mr-auto">
+      </ul>
+      <ul class="navbar-nav">
+          <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('logout')}}">Log Out</a>
+          </li>
+      </ul>
+  </div>
+</nav>
+<div class='container'>
+<h1>Query Area</h1>
+</div>
+<div class="container">
+  <form name="query"  method="post" enctype="multipart/form-data">
+    <div class="form-group">
+      <label for="post-title">Title</label>
+      <input type="text" class="form-control" name='title'  placeholder="Enter song title">
+    </div>
+    <div class="form-group">
+      <label for="post-title">Year</label>
+      <input type="text" class="form-control" name='year'  placeholder="Enter year of the song">
+    </div>
+    <div class="form-group">
+      <label for="post-title">Artist</label>
+      <input type="text" class="form-control" name='artist'  placeholder="Enter artist">
+    </div>
+    <button type="submit" class="btn btn-primary"name="submit-button" value="query">Query</button>
+  </form>
+</div>
+<div class="container" id='query-result'>
+  <table style="width:100%">
+  <tr>
+    <th>Title</th>
+    <th>Year</th>
+    <th>Arist</th>
+    <th>Image</th>
+    <th>Subscribe</th>
+  </tr>
+  {%for i in range(0, len)%}
+  <tr>
+    <td>{{song[i]['title']}}</td>
+    <td>{{song[i]['year']}}</td>
+    <td>{{song[i]['artist']}}</td>
+    <td><img src="{{image[i]}}" width="80" height="80" alt="User Display Picture" class="img-thumbnail"></td>
+    <td>
+      <form name="subscribe"  method="post">
+        <div hidden class="form-group">
+          <label for="post-title">Title</label>
+          <input type="text" class="form-control" name='title' id="title" value="{{song[i]['title']}}">
+        </div>
+        <div hidden class="form-group">
+          <label for="post-title">Title</label>
+          <input type="text" class="form-control" name='artist' id="artist" value="{{song[i]['artist']}}">
+        </div>
+        <button type="submit" class="btn btn-primary" name="submit-button"value="subscribe">Subscribe</button>
+      </form>
+    </td>
+  </tr>
+  {%endfor%}
+  </table>
+  {% if empty_query %}
+    <p class=error><strong></strong> {{ empty_query }}
+  {% endif %}
+</div>
+<div class='container'>
+<h1>Subscription Area</h1>
+</div>
+<div class="container" id='subscription'>
+  <table style="width:100%">
+  <tr>
+    <th>Title</th>
+    <th>Year</th>
+    <th>Arist</th>
+    <th>Image</th>
+    <th>Remove</th>
+  </tr>
+  {%for i in range(0, len2)%}
+  <tr>
+    <td>{{subscribed_song[i]['title']}}</td>
+    <td>{{subscribed_song[i]['year']}}</td>
+    <td>{{subscribed_song[i]['artist']}}</td>
+    <td><img src="{{subscribed_image[i]}}" width="80" height="80" alt="User Display Picture" class="img-thumbnail"></td>
+    <td>
+      <form name="remove"  method="post">
+        <div hidden class="form-group">
+          <label for="post-title">Title</label>
+          <input type="text" class="form-control" name='title' id="title" value="{{subscribed_song[i]['title']}}">
+        </div>
+        <div hidden class="form-group">
+          <label for="post-title">Artist</label>
+          <input type="text" class="form-control" name='artist' id="artist" value="{{subscribed_song[i]['artist']}}">
+        </div>
+        <button type="submit" class="btn btn-primary" name="submit-button"value="remove">Remove</button>
+      </form>
+    </td>
+  </tr>
+  {%endfor%}
+  </table>
+</div>
+{% endblock %}

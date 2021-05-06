@@ -1,0 +1,570 @@
+Name: Le Hai Nam
+Student number: s3625204
+Task 1:
+
+Populate table wit login
+
+from pprint import pprint
+
+import boto3
+
+def put_login(email, user_name, password, dynamodb=None):
+    if not dynamodb:
+        dynamodb = boto3.resource('dynamodb')
+        table = dynamodb.Table('login')
+        response = table.put_item(
+            Item={
+                'email': email,
+                'user_name': user_name,
+                'password': password
+            }
+        )
+        return response
+
+if __name__ == '__main__':
+    student_id = "s3625204"
+    orginial_user_name = "Nam Le"
+    for i in range(10):
+        email = student_id + str(i) + "@rmit.edu.vn"
+        user_name = orginial_user_name + str(i)
+        password = ""
+        for x in range(6):
+            counter = x + i
+            if counter > 9:
+                counter = counter - 10
+            password = password+str(counter)
+        login_resp = put_login(email, user_name, password)
+
+    print("Put login succeeded:")
+
+    pprint(login_resp, sort_dicts=False)
+
+Create music table
+
+import boto3
+from decimal import Decimal
+import json
+TABLE_NAME='music'
+def create_music_table(dynamodb=None):
+    if not dynamodb:
+        dynamodb = boto3.resource('dynamodb')
+        dynamodb_client = boto3.client('dynamodb')
+    existing_tables = dynamodb_client.list_tables()['TableNames']
+    if TABLE_NAME not in existing_tables:
+        music_table = dynamodb.create_table(
+            TableName=TABLE_NAME,
+            KeySchema=[
+                {
+                    'AttributeName':'title',
+                    'KeyType': 'HASH'
+                },
+                {
+                    'AttributeName':'artist',
+                    'KeyType': 'RANGE'
+                }
+            ],
+            AttributeDefinitions=[
+                {
+                    'AttributeName':'title',
+                    'AttributeType': 'S'
+                },
+                {
+                    'AttributeName':'artist',
+                    'AttributeType': 'S'
+                }
+            ],
+            ProvisionedThroughput={
+                'ReadCapacityUnits': 10,
+                'WriteCapacityUnits': 10
+            }
+        )
+        print("Table created!")
+    else:
+        print("Table already exists")
+
+if __name__ == '__main__':
+    with open('a2.json') as json_file:
+        song_list = json.load(json_file,parse_float=Decimal)
+    create_music_table()
+
+Populate music table
+
+import boto3
+from decimal import Decimal
+import json
+
+def populate_music_table(song_list,dynamodb=None):
+    if not dynamodb:
+        dynamodb = boto3.resource('dynamodb')
+    table = dynamodb.Table('music')
+    for song in song_list['songs']:
+        title = song['title']
+        artist = song['artist']
+        year = int(song['year'])
+        web_url = song['web_url']
+        image_url = song['img_url']
+        print('Adding song: ',title)
+        table.put_item(Item={
+                'title': title,
+                'artist': artist,
+                'year': year,
+                'web_url': web_url,
+                'image_url': image_url
+            })
+
+if __name__ == '__main__':
+    with open('a2.json') as json_file:
+        song_list = json.load(json_file,parse_float=Decimal)
+    populate_music_table(song_list)
+
+Upload image to S3
+
+import boto3
+from decimal import Decimal
+import json
+import requests
+
+def upload_image(song_list,s3=None):
+    if not s3:
+        client = boto3.client('s3', region_name='us-east-1')
+    for song in song_list['songs']:
+        title = song['title']
+        image_url = song['img_url']
+        img_data = requests.get(image_url,stream=True)
+        client.upload_fileobj(img_data.raw, "music-image-assignment2",
+         title.split('/')[-1],ExtraArgs={'ContentType': 'image/jpeg'})
+if __name__ == '__main__':
+    with open('a2.json') as json_file:
+        song_list = json.load(json_file,parse_float=Decimal)
+    upload_image(song_list)
+
+Task 2
+
+app.py
+
+import datetime
+import boto3
+
+from boto3.dynamodb.conditions import Key,Attr
+from flask import Flask, render_template, url_for, redirect, request, session,flash
+
+app = Flask(__name__)
+app.secret_key = 'cc2021'
+@app.route('/', methods=['POST','GET'])
+def root():
+    login_error = None
+    if request.method == 'POST':
+        user_email = request.form.get("email")
+        user_password = request.form.get("password")
+        if user_email == '' or user_password =='':
+            login_error = 'email or password is invalid'
+            return render_template('index.html',error=login_error)
+        user = query_login(user_email,user_password)
+        if len(user) != 1:
+            login_error = 'email or password is invalid'
+            return render_template('index.html',error=login_error)
+        else:
+            user = query_email(user_email)
+            session['login'] = True
+            session['email'] = user[0]['email']
+            session['user_name'] = user[0]['user_name']
+            return redirect(url_for("main"))
+    else:
+        if 'login' in session:
+            if session['login'] == True:
+                return redirect(url_for("main"))
+            else:
+                return render_template('index.html')
+        else:
+            return render_template('index.html')
+
+@app.route('/register',methods=['POST','GET'])
+def register():
+    register_error = None
+    session['login'] = False
+    session.pop('user_name',None)
+    session.pop('email', None)
+    if request.method == 'POST':
+        user_email = request.form.get("email")
+        user_name = request.form.get("user_name")
+        user_password = request.form.get("password")
+        if (len(query_email(user_email)) != 0):
+            register_error = 'The email already exists'
+            return render_template('register.html',error=register_error)
+        else:
+            add_login(user_email,user_password,user_name)
+            flash('You can now log in with your new email and password')
+            return redirect(url_for("root"))
+    else:
+        return render_template('register.html')
+
+@app.route('/main', methods=['POST','GET'])
+def main():
+    main_error = None
+    empty_query = None
+    if request.method == 'POST':
+        if request.form['submit-button'] == 'query':
+            song_title = request.form.get("title")
+            song_year = request.form.get("year")
+            song_artist = request.form.get("artist")
+            scan_result = scan_song(song_title,song_year,song_artist)
+            song_image = []
+            for i in scan_result:
+                song_image.append(create_presigned_url('music-image-assignment2',i['title']))
+            if len(scan_result) == 0:
+                empty_query = 'No result is  retrieved. Please query again'
+            subscribed_song = scan_subscription(session['email'])
+            subscribed_song_image = []
+            for song in subscribed_song:
+                subscribed_song_image.append(create_presigned_url('music-image-assignment2',song['title']))
+            return render_template('main.html',user_name=session['user_name'],song=scan_result,len=len(scan_result),len2=len(subscribed_song),image=song_image,empty_query=empty_query,
+                subscribed_image=subscribed_song_image,subscribed_song=subscribed_song)
+        elif request.form['submit-button'] == 'subscribe':
+            song_title = request.form.get("title")
+            song_artist = request.form.get("artist")
+            subscribe_song(song_title,song_artist)
+            subscribed_song = scan_subscription(session['email'])
+            subscribed_song_image = []
+            for song in subscribed_song:
+                subscribed_song_image.append(create_presigned_url('music-image-assignment2',song['title']))
+            return render_template('main.html',user_name=session['user_name'],len=0,subscribed_image=subscribed_song_image,subscribed_song=subscribed_song,len2=len(subscribed_song))
+        elif request.form['submit-button'] == 'remove':
+            song_title = request.form.get("title")
+            delete_subscription(session['email'],song_title)
+            subscribed_song = scan_subscription(session['email'])
+            subscribed_song_image = []
+            for song in subscribed_song:
+                subscribed_song_image.append(create_presigned_url('music-image-assignment2',song['title']))
+            return render_template('main.html',user_name=session['user_name'],len=0,subscribed_image=subscribed_song_image,subscribed_song=subscribed_song,len2=len(subscribed_song))
+    else:
+        if 'login' in session:
+            if session['login'] == True:
+                subscribed_song = scan_subscription(session['email'])
+                subscribed_song_image = []
+                for song in subscribed_song:
+                    subscribed_song_image.append(create_presigned_url('music-image-assignment2',song['title']))
+                return render_template('main.html',user_name=session['user_name'],len=0,len2=len(subscribed_song),subscribed_image=subscribed_song_image,subscribed_song=subscribed_song)
+            else:
+                return render_template('index.html')
+        else:
+            return render_template('index.html')
+
+@app.route('/logout',methods=['POST','GET'])
+def logout():
+    session['login'] = False
+    session.pop('user_name',None)
+    session.pop('email', None)
+    return redirect(url_for("root"))
+
+def query_login(email,password, dynamodb=None):
+    if not dynamodb:
+        dynamodb = boto3.resource('dynamodb')
+    table= dynamodb.Table('login')
+    response = table.query(
+        KeyConditionExpression = Key('email').eq(email) & Key('password').eq(password)
+    )
+    return response['Items']
+
+def query_email(email, dynamodb=None):
+    if not dynamodb:
+        dynamodb = boto3.resource('dynamodb')
+    table= dynamodb.Table('login')
+    response = table.query(
+        KeyConditionExpression = Key('email').eq(email)
+    )
+    print(response['Items'])
+    return response['Items']
+
+def add_login(email,password,username, dynamodb=None):
+    if not dynamodb:
+        dynamodb = boto3.resource('dynamodb')
+    table= dynamodb.Table('login')
+    table.put_item(Item={
+                'email': email,
+                'password': password,
+                'user_name': username
+            })
+
+def scan_song(title,year,artist, dynamodb=None):
+    if not dynamodb:
+        dynamodb = boto3.resource('dynamodb')
+    table= dynamodb.Table('music')
+    filter_expression_list = []
+    if title != "":
+        filter_expression_list.append(Attr('title').contains(title))
+    if year != "":
+        filter_expression_list.append(Attr('year').eq(int(year)))
+    if artist != "":
+        filter_expression_list.append(Attr('artist').contains(artist))
+    filter_expression = None
+    first = True
+    for filter in filter_expression_list:
+        if first:
+            filter_expression = filter
+            first = False
+        else:
+            filter_expression = filter_expression & filter
+    if filter_expression is not None:
+        response = table.scan(
+            FilterExpression=filter_expression
+            )
+        return response['Items']
+    else:
+        response = table.scan()
+        return response['Items']
+def subscribe_song(title,artist,dynamodb=None):
+    if not dynamodb:
+        dynamodb = boto3.resource('dynamodb')
+    table= dynamodb.Table('music')
+    response = table.get_item(Key={'title': title, 'artist': artist})
+    subscribed_song = response['Item']
+    subscription_table = dynamodb.Table('subscription')
+    subscription_table.put_item(Item={
+                'title': subscribed_song['title'],
+                'artist': subscribed_song['artist'],
+                'year': subscribed_song['year'],
+                'web_url': subscribed_song['web_url'],
+                'image_url': subscribed_song['image_url'],
+                'email' : session['email']
+            })
+def create_presigned_url(bucket_name, object_name, expiration=3600):
+    s3_client = boto3.client('s3')
+    response = s3_client.generate_presigned_url('get_object',
+                                                    Params={'Bucket': bucket_name,
+                                                            'Key': object_name},
+                                                    ExpiresIn=expiration)
+    return response
+
+def scan_subscription(email,dynamodb=None):
+    if not dynamodb:
+        dynamodb = boto3.resource('dynamodb')
+    table= dynamodb.Table('subscription')
+    response = table.scan(
+        FilterExpression=Attr('email').eq(email)
+    )
+    return response['Items']
+
+def delete_subscription(email,title,dynamodb=None):
+    if not dynamodb:
+        dynamodb = boto3.resource('dynamodb')
+    table= dynamodb.Table('subscription')
+    response = table.delete_item(
+        Key={
+            'email': email,
+            'title': title
+        }
+    )
+
+if __name__ == '__main__':
+    # This is used when running locally only. When deploying to Google App
+    # Engine, a webserver process such as Gunicorn will serve the app. This
+    # can be configured by adding an `entrypoint` to app.yaml.
+    # Flask's development server will automatically serve static files in
+    # the "static" directory. See:
+    # http://flask.pocoo.org/docs/1.0/quickstart/#static-files. Once deployed,
+    # App Engine itself will serve those files as configured in app.yaml.
+    app.run(host='0.0.0.0', port=8080, debug=True)
+
+base.html
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <link type="text/css" rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            <ul class=flashes>
+            {% for message in messages %}
+                <li>{{ message }}</li>
+            {% endfor %}
+            </ul>
+        {% endif %}
+    {% endwith %}
+    {% block head %}{% endblock %}
+</head>
+<body>
+    {% block body %}{% endblock%}
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+</body>
+</html>
+
+index.html
+
+{% extends 'base.html' %}
+
+{% block head %}
+<h1>Login</h1>
+{% endblock %}
+
+{% block body %}
+{% if error %}
+  <p class=error><strong>Error:</strong> {{ error }}
+{% endif %}
+<form name="login" method="post">
+  <div class="form-group">
+    <label for="email">Email</label>
+    <input type="text" class="form-control" name="email" placeholder="Enter Email">
+  </div>
+  <div class="form-group">
+    <label for="password">Password</label>
+    <input type="password" class="form-control" name="password" placeholder="Password">
+  </div>
+  <button type="submit" class="btn btn-primary">Submit</button>
+</form>
+<p><a href="{{ url_for('register')}}">Register</a></p>
+{% endblock %}
+
+main.html
+
+{% extends 'base.html' %}
+
+{% block head %}
+<h1>Main Page</h1>
+{% endblock %}
+
+{% block body %}
+{% if error %}
+  <p class=error><strong>Error:</strong> {{ error }}
+{% endif %}
+<nav class="navbar navbar-expand-md navbar-light bg-light">
+  <a class="navbar-brand">{{user_name}}</a>
+  <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav mr-auto">
+      </ul>
+      <ul class="navbar-nav">
+          <li class="nav-item">
+              <a class="nav-link" href="{{ url_for('logout')}}">Log Out</a>
+          </li>
+      </ul>
+  </div>
+</nav>
+<div class='container'>
+<h1>Query Area</h1>
+</div>
+<div class="container">
+  <form name="query"  method="post" enctype="multipart/form-data">
+    <div class="form-group">
+      <label for="post-title">Title</label>
+      <input type="text" class="form-control" name='title'  placeholder="Enter song title">
+    </div>
+    <div class="form-group">
+      <label for="post-title">Year</label>
+      <input type="text" class="form-control" name='year'  placeholder="Enter year of the song">
+    </div>
+    <div class="form-group">
+      <label for="post-title">Artist</label>
+      <input type="text" class="form-control" name='artist'  placeholder="Enter artist">
+    </div>
+    <button type="submit" class="btn btn-primary"name="submit-button" value="query">Query</button>
+  </form>
+</div>
+<div class="container" id='query-result'>
+  <table style="width:100%">
+  <tr>
+    <th>Title</th>
+    <th>Year</th>
+    <th>Arist</th>
+    <th>Image</th>
+    <th>Subscribe</th>
+  </tr>
+  {%for i in range(0, len)%}
+  <tr>
+    <td>{{song[i]['title']}}</td>
+    <td>{{song[i]['year']}}</td>
+    <td>{{song[i]['artist']}}</td>
+    <td><img src="{{image[i]}}" width="80" height="80" alt="User Display Picture" class="img-thumbnail"></td>
+    <td>
+      <form name="subscribe"  method="post">
+        <div hidden class="form-group">
+          <label for="post-title">Title</label>
+          <input type="text" class="form-control" name='title' id="title" value="{{song[i]['title']}}">
+        </div>
+        <div hidden class="form-group">
+          <label for="post-title">Title</label>
+          <input type="text" class="form-control" name='artist' id="artist" value="{{song[i]['artist']}}">
+        </div>
+        <button type="submit" class="btn btn-primary" name="submit-button"value="subscribe">Subscribe</button>
+      </form>
+    </td>
+  </tr>
+  {%endfor%}
+  </table>
+  {% if empty_query %}
+    <p class=error><strong></strong> {{ empty_query }}
+  {% endif %}
+</div>
+<div class='container'>
+<h1>Subscription Area</h1>
+</div>
+<div class="container" id='subscription'>
+  <table style="width:100%">
+  <tr>
+    <th>Title</th>
+    <th>Year</th>
+    <th>Arist</th>
+    <th>Image</th>
+    <th>Remove</th>
+  </tr>
+  {%for i in range(0, len2)%}
+  <tr>
+    <td>{{subscribed_song[i]['title']}}</td>
+    <td>{{subscribed_song[i]['year']}}</td>
+    <td>{{subscribed_song[i]['artist']}}</td>
+    <td><img src="{{subscribed_image[i]}}" width="80" height="80" alt="User Display Picture" class="img-thumbnail"></td>
+    <td>
+      <form name="remove"  method="post">
+        <div hidden class="form-group">
+          <label for="post-title">Title</label>
+          <input type="text" class="form-control" name='title' id="title" value="{{subscribed_song[i]['title']}}">
+        </div>
+        <div hidden class="form-group">
+          <label for="post-title">Artist</label>
+          <input type="text" class="form-control" name='artist' id="artist" value="{{subscribed_song[i]['artist']}}">
+        </div>
+        <button type="submit" class="btn btn-primary" name="submit-button"value="remove">Remove</button>
+      </form>
+    </td>
+  </tr>
+  {%endfor%}
+  </table>
+</div>
+{% endblock %}
+
+register.html
+
+{% extends 'base.html' %}
+
+{% block head %}
+<h1>Register</h1>
+{% endblock %}
+
+{% block body %}
+{% if error %}
+  <p class=error><strong>Error:</strong> {{ error }}
+{% endif %}
+<form name="register" method="post" enctype="multipart/form-data">
+  <div class="form-group">
+    <label for="email">Email</label>
+    <input type="text" class="form-control" name="email" placeholder="Enter Email">
+  </div>
+  <div class="form-group">
+    <label for="user-name">User Name</label>
+    <input type="text" class="form-control" name="user_name" placeholder="Enter User Name">
+  </div>
+  <div class="form-group">
+    <label for="password">Password</label>
+    <input type="password" class="form-control" name="password" placeholder="Password">
+  </div>
+  <button type="submit" class="btn btn-primary">Register</button>
+</form>
+{% endblock %}
+
+requirements.txt
+
+Flask==1.1.2

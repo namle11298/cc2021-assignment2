@@ -1,0 +1,12 @@
+body {
+  font-family: "helvetica", sans-serif;
+}
+.user-display{
+  width: 80px;
+  height: 80px;
+}
+#post {
+  background-color: lightblue;
+  border: lightcoral;
+  border-style: solid;
+}
